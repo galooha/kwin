@@ -77,6 +77,13 @@ public:
     virtual QRegion prepareRenderingFrame() = 0;
 
     /**
+     * Notifies about starting to paint.
+     *
+     * @p damage contains the reported damage as suggested by windows and effects on prepaint calls.
+     */
+    virtual void aboutToStartPainting(const QRegion &damage);
+
+    /**
      * @brief Backend specific code to handle the end of rendering a frame.
      *
      * @param renderedRegion The possibly larger region that has been rendered
@@ -159,6 +166,15 @@ public:
 
     bool supportsBufferAge() const {
         return m_haveBufferAge;
+    }
+
+    bool supportsPartialUpdate() const
+    {
+        return m_havePartialUpdate;
+    }
+    bool supportsSwapBuffersWithDamage() const
+    {
+        return m_haveSwapBuffersWithDamage;
     }
 
     /**
@@ -252,6 +268,16 @@ protected:
         m_haveBufferAge = value;
     }
 
+    void setSupportsPartialUpdate(bool value)
+    {
+        m_havePartialUpdate = value;
+    }
+
+    void setSupportsSwapBuffersWithDamage(bool value)
+    {
+        m_haveSwapBuffersWithDamage = value;
+    }
+
     /**
      * @return const QRegion& Damage of previously rendered frame
      */
@@ -303,6 +329,11 @@ private:
      * @brief Whether the backend supports GLX_EXT_buffer_age / EGL_EXT_buffer_age.
      */
     bool m_haveBufferAge;
+    /**
+     * @brief Whether the backend supports EGL_KHR_partial_update
+     */
+    bool m_havePartialUpdate;
+    bool m_haveSwapBuffersWithDamage = false;
     /**
      * @brief Whether the initialization failed, of course default to @c false.
      */

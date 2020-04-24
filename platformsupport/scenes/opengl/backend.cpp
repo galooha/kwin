@@ -122,4 +122,9 @@ QSharedPointer<KWin::GLTexture> OpenGLBackend::textureForOutput(AbstractOutput* 
     return {};
 }
 
+void OpenGLBackend::aboutToStartPainting(const QRegion &damage)
+{
+    Q_UNUSED(damage)
+}
+
 }
