@@ -84,7 +84,7 @@ public:
     void importFromRules(Rules *rules);
     Rules *exportToRules() const;
 
-    void setWindowProperties(const QVariantMap &info, bool forceValue = false);
+    void setWindowProperties(const QVariantMap &info, bool isFromMenu = false);
 
     QString description() const;
     void setDescription(const QString &description);

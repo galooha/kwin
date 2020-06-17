@@ -64,12 +64,17 @@ private slots:
 private:
     int editIndex() const;
     void saveCurrentRule();
+    void getWindowProperties(const QUuid &uuid);
+    Rules *newRuleForProperties() const;
 
 private:
     RuleBookModel *m_ruleBookModel;
     RulesModel* m_rulesModel;
 
     QPersistentModelIndex m_editIndex;
+
+    QVariantMap m_winProperties;
+    bool m_wholeApp = false;
 };
 
 } // namespace

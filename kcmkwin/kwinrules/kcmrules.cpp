@@ -54,6 +54,17 @@ KCMKWinRules::KCMKWinRules(QObject *parent, const QVariantList &arguments)
                       " KWin as your window manager. If you do use a different window manager, please refer to its documentation"
                       " for how to customize window behavior.</p>"));
 
+    // When called from window menu, "uuid" and "whole-app" are set in arguments list
+    for (const QVariant arg : arguments) {
+        if (arg.toString().startsWith("uuid=")) {
+            const QUuid winUuid = QUuid(arg.toString().mid(strlen("uuid=")));
+            getWindowProperties(winUuid);
+        }
+        if (arg.toString() == QStringLiteral("whole-app")) {
+            m_wholeApp = true;
+        }
+    }
+
     connect(m_rulesModel, &RulesModel::descriptionChanged, this, [this]{
         if (m_editIndex.isValid()) {
             m_ruleBookModel->setDescriptionAt(m_editIndex.row(), m_rulesModel->description());
@@ -66,11 +77,24 @@ KCMKWinRules::KCMKWinRules(QObject *parent, const QVariantList &arguments)
 void KCMKWinRules::load()
 {
     m_ruleBookModel->load();
+    setNeedsSave(false);
+
+    if (!m_winProperties.isEmpty()) {
+        QModelIndex matchedIndex = m_ruleBookModel->findRuleWithProperties(m_winProperties, m_wholeApp);
+        if (!matchedIndex.isValid()) {
+            m_ruleBookModel->insertRow(0);
+            m_ruleBookModel->setRuleAt(0, newRuleForProperties());
+            matchedIndex = m_ruleBookModel->index(0);
+            updateNeedsSave();
+        }
+        editRule(matchedIndex.row());
+        m_rulesModel->setWindowProperties(m_winProperties, true);
+        m_winProperties.clear();
+        return;
+    }
 
     m_editIndex = QModelIndex();
     emit editIndexChanged();
-
-    setNeedsSave(false);
 }
 
 void KCMKWinRules::save()
@@ -245,6 +269,117 @@ void KCMKWinRules::importFromFile(const QUrl &path)
     }
 
     updateNeedsSave();
+}
+
+void KCMKWinRules::getWindowProperties(const QUuid &winUuid)
+{
+    if (winUuid.isNull()) {
+        qDebug() << "Invalid window uuid.";
+        return;
+    }
+
+    QDBusMessage message = QDBusMessage::createMethodCall(QStringLiteral("org.kde.KWin"),
+                                                          QStringLiteral("/KWin"),
+                                                          QStringLiteral("org.kde.KWin"),
+                                                          QStringLiteral("getWindowInfo"));
+    message.setArguments({winUuid.toString()});
+    QDBusPendingReply<QVariantMap> async = QDBusConnection::sessionBus().asyncCall(message);
+
+    QDBusPendingCallWatcher *callWatcher = new QDBusPendingCallWatcher(async, this);
+    connect(callWatcher, &QDBusPendingCallWatcher::finished, this,
+            [this, winUuid] (QDBusPendingCallWatcher *self) {
+                QDBusPendingReply<QVariantMap> reply = *self;
+                self->deleteLater();
+                if (!reply.isValid() || reply.value().isEmpty()) {
+                    qDebug() << "Error retrieving properties for window" << winUuid;
+                    return;
+                }
+                qDebug() << "Retrieved properties for window" << winUuid;
+                m_winProperties = reply.value();
+            }
+    );
+}
+
+
+// Code adapted from original `findRule()` method in `kwin_rules_dialog::main.cpp`
+// TODO: This could be merged (or replaced) with RulesModel::setWindowProperties()
+// adding the missing bits, but let's keep it unchanged for now to avoid unintended bugs
+Rules *KCMKWinRules::newRuleForProperties() const
+{
+    const QByteArray wmclass_class = m_winProperties.value("resourceClass").toByteArray().toLower();
+    const QByteArray wmclass_name = m_winProperties.value("resourceName").toByteArray().toLower();
+    const QByteArray role = m_winProperties.value("role").toByteArray().toLower();
+    const NET::WindowType type = static_cast<NET::WindowType>(m_winProperties.value("type").toInt());
+    const QString title = m_winProperties.value("caption").toString();
+    const QByteArray machine = m_winProperties.value("clientMachine").toByteArray();
+
+    Rules *rule = new Rules;
+
+    if (m_wholeApp) {
+        rule->description = i18n("Application settings for %1", QString::fromLatin1(wmclass_class));
+        // TODO maybe exclude some types? If yes, then also exclude them above
+        // when searching.
+        rule->types = NET::AllTypesMask;
+        rule->titlematch = Rules::UnimportantMatch;
+        rule->clientmachine = machine; // set, but make unimportant
+        rule->clientmachinematch = Rules::UnimportantMatch;
+        rule->windowrolematch = Rules::UnimportantMatch;
+        if (wmclass_name == wmclass_class) {
+            rule->wmclasscomplete = false;
+            rule->wmclass = wmclass_class;
+            rule->wmclassmatch = Rules::ExactMatch;
+        } else {
+            // WM_CLASS components differ - perhaps the app got -name argument
+            rule->wmclasscomplete = true;
+            rule->wmclass = wmclass_name + ' ' + wmclass_class;
+            rule->wmclassmatch = Rules::ExactMatch;
+        }
+        return rule;
+    }
+
+    rule->description = i18n("Window settings for %1", QString::fromLatin1(wmclass_class));
+    if (type == NET::Unknown) {
+        rule->types = NET::NormalMask;
+    } else {
+        rule->types = NET::WindowTypeMask( 1 << type); // convert type to its mask
+    }
+    rule->title = title; // set, but make unimportant
+    rule->titlematch = Rules::UnimportantMatch;
+    rule->clientmachine = machine; // set, but make unimportant
+    rule->clientmachinematch = Rules::UnimportantMatch;
+    if (!role.isEmpty() && role != "unknown" && role != "unnamed") { // Qt sets this if not specified
+        rule->windowrole = role;
+        rule->windowrolematch = Rules::ExactMatch;
+        if (wmclass_name == wmclass_class) {
+            rule->wmclasscomplete = false;
+            rule->wmclass = wmclass_class;
+            rule->wmclassmatch = Rules::ExactMatch;
+        } else {
+            // WM_CLASS components differ - perhaps the app got -name argument
+            rule->wmclasscomplete = true;
+            rule->wmclass = wmclass_name + ' ' + wmclass_class;
+            rule->wmclassmatch = Rules::ExactMatch;
+        }
+    } else { // no role set
+        if (wmclass_name != wmclass_class) {
+            rule->wmclasscomplete = true;
+            rule->wmclass = wmclass_name + ' ' + wmclass_class;
+            rule->wmclassmatch = Rules::ExactMatch;
+        } else {
+            // This is a window that has no role set, and both components of WM_CLASS
+            // match (possibly only differing in case), which most likely means either
+            // the application doesn't give a damn about distinguishing its various
+            // windows, or it's an app that uses role for that, but this window
+            // lacks it for some reason. Use non-complete WM_CLASS matching, also
+            // include window title in the matching, and pray it causes many more positive
+            // matches than negative matches.
+            rule->titlematch = Rules::ExactMatch;
+            rule->wmclasscomplete = false;
+            rule->wmclass = wmclass_class;
+            rule->wmclassmatch = Rules::ExactMatch;
+        }
+    }
+    return rule;
 }
 
 K_PLUGIN_CLASS_WITH_JSON(KCMKWinRules, "kcm_kwinrules.json");

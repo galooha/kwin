@@ -994,15 +994,20 @@ WindowRules RuleBook::find(const AbstractClient* c, bool ignore_temporary)
 void RuleBook::edit(AbstractClient* c, bool whole_app)
 {
     save();
-    QStringList args;
-    args << QStringLiteral("--uuid") << c->internalId().toString();
-    if (whole_app)
-        args << QStringLiteral("--whole-app");
+
+    QString kcm_args = QStringLiteral("uuid=%1").arg(c->internalId().toString());
+    if (whole_app) {
+        kcm_args += QStringLiteral(" whole-app");
+    }
+    QStringList kcmshell_args {
+        QStringLiteral("kcm_kwinrules"),
+        QStringLiteral("--args"), kcm_args,
+    };
+
     QProcess *p = new Process(this);
-    p->setArguments(args);
+    p->setArguments(kcmshell_args);
     p->setProcessEnvironment(kwinApp()->processStartupEnvironment());
-    const QFileInfo buildDirBinary{QDir{QCoreApplication::applicationDirPath()}, QStringLiteral("kwin_rules_dialog")};
-    p->setProgram(buildDirBinary.exists() ? buildDirBinary.absoluteFilePath() : QStringLiteral(KWIN_RULES_DIALOG_BIN));
+    p->setProgram(QStringLiteral("kcmshell5"));
     p->setProcessChannelMode(QProcess::MergedChannels);
     connect(p, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), p, &QProcess::deleteLater);
     connect(p, &QProcess::errorOccurred, this, [p](QProcess::ProcessError e) {
