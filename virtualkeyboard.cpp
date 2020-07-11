@@ -21,6 +21,7 @@
 #include <KWaylandServer/seat_interface.h>
 #include <KWaylandServer/textinput_interface.h>
 #include <KWaylandServer/surface_interface.h>
+#include <KWaylandServer/inputmethod_v1_interface.h>
 
 #include <KStatusNotifierItem>
 #include <KLocalizedString>
@@ -115,6 +116,33 @@ void VirtualKeyboard::init()
         t->create();
         auto t2 = waylandServer()->display()->createTextInputManager(TextInputInterfaceVersion::UnstableV2, waylandServer()->display());
         t2->create();
+
+        auto inputPanel = waylandServer()->display()->createInputPanelInterface(this);
+        connect(inputPanel, &InputPanelV1Interface::inputPanelSurfaceAdded, this, [this, inputPanel] (InputPanelSurfaceV1Interface *surface) {
+            m_inputClient = waylandServer()->createInputPanelClient(surface);
+            auto refreshFrame = [this] {
+                const QRect inputGeometry = m_inputClient->surface()->input().boundingRect();
+                if (!m_trackedClient || inputGeometry.isEmpty()) {
+                    return;
+                }
+                m_trackedClient->setVirtualKeyboardGeometry(inputGeometry);
+            };
+            connect(surface->surface(), &SurfaceInterface::inputChanged, this, refreshFrame);
+
+            connect(surface->surface(), &SurfaceInterface::inputChanged, this, refreshFrame);
+            connect(this, &VirtualKeyboard::hide, m_inputClient, [this] {
+                m_inputClient->hideClient(true);
+            });
+            connect(this, &VirtualKeyboard::show, m_inputClient, [this] {
+                m_inputClient->hideClient(false);
+            });
+            connect(surface->surface(), &SurfaceInterface::unmapped, this, [this, inputPanel, surface] {
+                m_inputClient->destroyClient();
+                inputPanel->inputPanelSurfaceAdded(surface);
+            });
+            refreshFrame();
+        });
+
         connect(waylandServer()->seat(), &SeatInterface::focusedTextInputChanged, this,
             [this] {
                 disconnect(m_waylandShowConnection);
@@ -137,12 +165,27 @@ void VirtualKeyboard::init()
                             qApp->inputMethod()->update(Qt::ImHints);
                         }
                     );
-                    m_waylandResetConnection = connect(t, &TextInputInterface::requestReset, qApp->inputMethod(), &QInputMethod::reset);
-                    m_waylandEnabledConnection = connect(t, &TextInputInterface::enabledChanged, this,
-                        [] {
-                            qApp->inputMethod()->update(Qt::ImQueryAll);
+                    m_waylandResetConnection = connect(t, &TextInputInterface::requestReset, this, [t] {
+                        auto inputContext = waylandServer()->inputMethod()->context();
+                        if (!inputContext) {
+                            return;
                         }
-                    );
+
+                        inputContext->sendReset();
+                        inputContext->sendSurroundingText(QString::fromUtf8(t->surroundingText()), t->surroundingTextCursorPosition(), t->surroundingTextSelectionAnchor());
+                        inputContext->sendPreferredLanguage(QString::fromUtf8(t->preferredLanguage()));
+                    });
+                    m_waylandEnabledConnection = connect(t, &TextInputInterface::enabledChanged, this, [t, this] {
+                        if (t->isEnabled()) {
+                            waylandServer()->inputMethod()->sendDeactivate();
+                            waylandServer()->inputMethod()->sendActivate();
+                            adoptInputMethodContext();
+                        } else {
+                            waylandServer()->inputMethod()->sendDeactivate();
+                            Q_EMIT hide();
+                        }
+                        qApp->inputMethod()->update(Qt::ImQueryAll);
+                    });
 
                     auto newClient = waylandServer()->findClient(waylandServer()->seat()->focusedTextInputSurface());
                     // Reset the old client virtual keybaord geom if necessary
@@ -154,7 +197,6 @@ void VirtualKeyboard::init()
                         m_trackedClient = newClient;
                     }
 
-                    m_trackedClient = waylandServer()->findClient(waylandServer()->seat()->focusedTextInputSurface());
 
                     updateInputPanelState();
                 } else {
@@ -211,6 +253,75 @@ void VirtualKeyboard::setEnabled(bool enabled)
     QDBusConnection::sessionBus().asyncCall(msg);
 }
 
+void VirtualKeyboard::adoptInputMethodContext()
+{
+    auto inputContext = waylandServer()->inputMethod()->context();
+    TextInputInterface *ti = waylandServer()->seat()->focusedTextInput();
+
+    inputContext->sendSurroundingText(QString::fromUtf8(ti->surroundingText()), ti->surroundingTextCursorPosition(), ti->surroundingTextSelectionAnchor());
+    inputContext->sendPreferredLanguage(QString::fromUtf8(ti->preferredLanguage()));
+
+    connect(inputContext, &KWaylandServer::InputMethodContextV1Interface::keysym, waylandServer(), [](quint32 serial, quint32 time, quint32 sym, bool pressed, Qt::KeyboardModifiers modifiers) {
+        Q_UNUSED(serial)
+        Q_UNUSED(time)
+        auto t = waylandServer()->seat()->focusedTextInput();
+        if (t && t->isEnabled()) {
+            if (pressed) {
+                t->keysymPressed(sym, modifiers);
+            } else {
+                t->keysymReleased(sym, modifiers);
+            }
+        }
+    });
+
+    connect(inputContext, &KWaylandServer::InputMethodContextV1Interface::commitString, waylandServer(), [](qint32 serial, const QString &text) {
+        Q_UNUSED(serial)
+        auto t = waylandServer()->seat()->focusedTextInput();
+        if (t && t->isEnabled()) {
+            t->commit(text.toUtf8());
+        }
+    });
+    connect(inputContext, &KWaylandServer::InputMethodContextV1Interface::preeditCursor, waylandServer(), [](qint32 index) {
+        auto t = waylandServer()->seat()->focusedTextInput();
+        if (t && t->isEnabled()) {
+            t->setPreEditCursor(index);
+        }
+    });
+    connect(inputContext, &KWaylandServer::InputMethodContextV1Interface::preeditString, waylandServer(), [](uint32_t serial, const QString &text, const QString &commit) {
+        Q_UNUSED(serial)
+        auto t = waylandServer()->seat()->focusedTextInput();
+        if (t && t->isEnabled()) {
+            t->preEdit(text.toUtf8(), commit.toUtf8());
+        }
+    });
+    connect(inputContext, &KWaylandServer::InputMethodContextV1Interface::deleteSurroundingText, waylandServer(), [](int32_t index, uint32_t length) {
+        auto t = waylandServer()->seat()->focusedTextInput();
+        if (t && t->isEnabled()) {
+            t->deleteSurroundingText(index, length);
+        }
+    });
+    connect(inputContext, &KWaylandServer::InputMethodContextV1Interface::cursorPosition, waylandServer(), [](qint32 index, qint32 anchor) {
+        auto t = waylandServer()->seat()->focusedTextInput();
+        if (t && t->isEnabled()) {
+            t->setCursorPosition(index, anchor);
+        }
+    });
+    connect(inputContext, &KWaylandServer::InputMethodContextV1Interface::language, waylandServer(), [](uint32_t serial, const QString &language) {
+        Q_UNUSED(serial)
+        auto t = waylandServer()->seat()->focusedTextInput();
+        if (t && t->isEnabled()) {
+            t->setLanguage(language.toUtf8());
+        }
+    });
+    connect(inputContext, &KWaylandServer::InputMethodContextV1Interface::textDirection, waylandServer(), [](uint32_t serial, Qt::LayoutDirection direction) {
+        Q_UNUSED(serial)
+        auto t = waylandServer()->seat()->focusedTextInput();
+        if (t && t->isEnabled()) {
+            t->setTextDirection(direction);
+        }
+    });
+}
+
 void VirtualKeyboard::updateSni()
 {
     if (!m_sni) {
@@ -234,35 +345,42 @@ void VirtualKeyboard::updateInputPanelState()
 
     auto t = waylandServer()->seat()->focusedTextInput();
 
-    if (!t || !m_inputWindow) {
+    if (!t) {
         return;
     }
 
-    const bool inputPanelHasBeenClosed = m_inputWindow->isVisible() && !qApp->inputMethod()->isVisible();
-    if (inputPanelHasBeenClosed && m_floodTimer->isActive()) {
-        return;
-    }
-    m_floodTimer->start();
+    if (m_inputWindow) {
+        const bool inputPanelHasBeenClosed = m_inputWindow->isVisible() && !qApp->inputMethod()->isVisible();
+        if (inputPanelHasBeenClosed && m_floodTimer->isActive()) {
+            return;
+        }
+        m_floodTimer->start();
 
-    m_inputWindow->setVisible(qApp->inputMethod()->isVisible());
+        m_inputWindow->setVisible(qApp->inputMethod()->isVisible());
 
-    if (qApp->inputMethod()->isVisible()) {
-        m_inputWindow->setMask(m_inputWindow->rootObject()->childrenRect().toRect());
-    }
-
-    if (m_inputWindow->isVisible() && m_trackedClient && m_inputWindow->rootObject()) {
-        const QRect inputPanelGeom = m_inputWindow->rootObject()->childrenRect().toRect().translated(m_inputWindow->geometry().topLeft());
-
-        m_trackedClient->setVirtualKeyboardGeometry(inputPanelGeom);
-
-        t->setInputPanelState(true, QRect(0, 0, 0, 0));
-
-    } else {
-        if (inputPanelHasBeenClosed && m_trackedClient) {
-            m_trackedClient->setVirtualKeyboardGeometry(QRect());
+        if (qApp->inputMethod()->isVisible()) {
+            m_inputWindow->setMask(m_inputWindow->rootObject()->childrenRect().toRect());
         }
 
-        t->setInputPanelState(false, QRect(0, 0, 0, 0));
+        if (m_inputWindow->isVisible() && m_trackedClient && m_inputWindow->rootObject()) {
+            const QRect inputPanelGeom = m_inputWindow->rootObject()->childrenRect().toRect().translated(m_inputWindow->geometry().topLeft());
+
+            m_trackedClient->setVirtualKeyboardGeometry(inputPanelGeom);
+
+            t->setInputPanelState(true, QRect(0, 0, 0, 0));
+
+        } else {
+            if (inputPanelHasBeenClosed && m_trackedClient) {
+                m_trackedClient->setVirtualKeyboardGeometry(QRect());
+            }
+
+            t->setInputPanelState(false, QRect(0, 0, 0, 0));
+        }
+    }
+
+    if (m_inputClient) {
+        m_trackedClient->setVirtualKeyboardGeometry(m_inputClient->frameGeometry());
+        t->setInputPanelState(true, QRect(0, 0, 0, 0));
     }
 }
 
