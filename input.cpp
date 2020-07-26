@@ -1586,6 +1586,10 @@ public:
     {
         if (device->isTabletTool()) {
             KWaylandServer::TabletSeatInterface *tabletSeat = findTabletSeat();
+            if (!tabletSeat) {
+                qCCritical(KWIN_CORE) << "Could not find tablet manager";
+                return;
+            }
             struct udev_device *const udev_device = libinput_device_get_udev_device(device->device());
             const char *devnode = udev_device_get_devnode(udev_device);
             tabletSeat->addTablet(device->vendor(), device->product(), device->sysName(), device->name(), {QString::fromUtf8(devnode)});
@@ -1594,7 +1598,10 @@ public:
     void removeDevice(const QString &sysname)
     {
         KWaylandServer::TabletSeatInterface *tabletSeat = findTabletSeat();
-        tabletSeat->removeTablet(sysname);
+        if (tabletSeat)
+            tabletSeat->removeTablet(sysname);
+        else
+            qCCritical(KWIN_CORE) << "Could not find tablet to remove" << sysname;
     }
 
     bool tabletToolEvent(TabletEvent *event) override
@@ -1604,6 +1611,10 @@ public:
         }
 
         KWaylandServer::TabletSeatInterface *tabletSeat = findTabletSeat();
+        if (!tabletSeat) {
+            qCCritical(KWIN_CORE) << "Could not find tablet manager";
+            return false;
+        }
         auto tool = tabletSeat->toolByHardwareSerial(event->serialId());
         if (!tool) {
             using namespace KWaylandServer;
