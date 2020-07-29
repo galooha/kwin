@@ -100,7 +100,6 @@ private:
     void resetHaveNextWindowGeometry();
     QRect adjustMoveResizeGeometry(const QRect &rect) const;
     void updateGeometryRestoreHack();
-    void updateDepth();
     void internalShow();
     void internalHide();
     void cleanGrouping();
