@@ -149,8 +149,6 @@ qint64 SceneQPainter::paint(const QRegion &_damage, const QList<Toplevel *> &top
     // do cleanup
     clearStackingOrder();
 
-    emit frameRendered();
-
     return renderTimer.nsecsElapsed();
 }
 
@@ -766,14 +764,14 @@ bool SceneQPainterShadow::prepareBackend()
 
     QPainter painter;
     painter.begin(&image);
-    painter.drawPixmap(0, 0, topLeft);
-    painter.drawPixmap(topLeft.width(), 0, top);
-    painter.drawPixmap(width - topRight.width(), 0, topRight);
-    painter.drawPixmap(0, height - bottomLeft.height(), bottomLeft);
-    painter.drawPixmap(bottomLeft.width(), height - bottom.height(), bottom);
-    painter.drawPixmap(width - bottomRight.width(), height - bottomRight.height(), bottomRight);
-    painter.drawPixmap(0, topLeft.height(), left);
-    painter.drawPixmap(width - right.width(), topRight.height(), right);
+    painter.drawPixmap(0, 0, topLeft.width(), topLeft.height(), topLeft);
+    painter.drawPixmap(topLeft.width(), 0, top.width(), top.height(), top);
+    painter.drawPixmap(width - topRight.width(), 0, topRight.width(), topRight.height(), topRight);
+    painter.drawPixmap(0, height - bottomLeft.height(), bottomLeft.width(), bottomLeft.height(), bottomLeft);
+    painter.drawPixmap(bottomLeft.width(), height - bottom.height(), bottom.width(), bottom.height(), bottom);
+    painter.drawPixmap(width - bottomRight.width(), height - bottomRight.height(), bottomRight.width(), bottomRight.height(), bottomRight);
+    painter.drawPixmap(0, topLeft.height(), left.width(), left.height(), left);
+    painter.drawPixmap(width - right.width(), topRight.height(), right.width(), right.height(), right);
     painter.end();
 
     m_texture = image;

@@ -177,7 +177,7 @@ public:
     bool isMovableAcrossScreens() const override;
     bool isCloseable() const override; ///< May be closed by the user (May have a close button)
 
-    void takeFocus() override;
+    bool takeFocus() override;
 
     void updateDecoration(bool check_workspace_pos, bool force = false) override;
 
@@ -416,8 +416,8 @@ private:
     void sendSyncRequest();
     void leaveMoveResize() override;
     void positionGeometryTip() override;
-    void grabButton(int mod);
-    void ungrabButton(int mod);
+    void establishCommandWindowGrab(uint8_t button);
+    void establishCommandAllGrab(uint8_t button);
     void resizeDecoration();
     void createDecoration(const QRect &oldgeom) override;
 
@@ -492,7 +492,6 @@ private:
     xcb_window_t m_transientForId;
     xcb_window_t m_originalTransientForId;
     X11Client *shade_below;
-    uint deleting : 1; ///< True when doing cleanup and destroying the client
     Xcb::MotifHints m_motif;
     uint hidden : 1; ///< Forcibly hidden by calling hide()
     uint noborder : 1;

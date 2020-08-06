@@ -590,6 +590,7 @@ public:
 Q_SIGNALS:
     void opacityChanged(KWin::Toplevel* toplevel, qreal oldOpacity);
     void damaged(KWin::Toplevel* toplevel, const QRect& damage);
+    void inputTransformationChanged();
     /**
      * This signal is emitted when the Toplevel's frame geometry changes.
      * @deprecated since 5.19, use frameGeometryChanged instead
@@ -657,6 +658,10 @@ Q_SIGNALS:
      */
     void shadowChanged();
 
+    /**
+     * This signal is emitted when the Toplevel's buffer geometry changes.
+     */
+    void bufferGeometryChanged(KWin::Toplevel *toplevel, const QRect &oldGeometry);
     /**
      * This signal is emitted when the Toplevel's frame geometry changes.
      */

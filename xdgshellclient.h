@@ -72,6 +72,7 @@ public:
     void move(int x, int y, ForceGeometry_t force = NormalGeometrySet) override;
     bool isShown(bool shaded_is_shown) const override;
     bool isHiddenInternal() const override;
+    bool isInitialPositionSet() const override;
     void hideClient(bool hide) override;
     void destroyClient() override;
 
@@ -82,8 +83,9 @@ public:
     QRect requestedClientGeometry() const;
     QSize requestedClientSize() const;
     QRect clientGeometry() const;
-    bool isClosing() const;
     bool isHidden() const;
+
+    virtual void installPlasmaShellSurface(KWaylandServer::PlasmaShellSurfaceInterface *shellSurface) = 0;
 
 protected:
     void addDamage(const QRegion &damage) override;
@@ -97,6 +99,8 @@ protected:
     void sendConfigure();
     void requestGeometry(const QRect &rect);
     void updateGeometry(const QRect &rect);
+
+    QPointer<KWaylandServer::PlasmaShellSurfaceInterface> m_plasmaShellSurface;
 
 private:
     void handleConfigureAcknowledged(quint32 serial);
@@ -121,7 +125,6 @@ private:
     QRect m_requestedFrameGeometry;
     QRect m_bufferGeometry;
     QRect m_requestedClientGeometry;
-    bool m_isClosing = false;
     bool m_isHidden = false;
     bool m_haveNextWindowGeometry = false;
 };
@@ -166,19 +169,18 @@ public:
     void updateDecoration(bool check_workspace_pos, bool force = false) override;
     void updateColorScheme() override;
     bool supportsWindowRules() const override;
-    void takeFocus() override;
+    bool takeFocus() override;
     bool wantsInput() const override;
     bool dockWantsInput() const override;
     bool hasStrut() const override;
     void showOnScreenEdge() override;
-    bool isInitialPositionSet() const override;
     void setFullScreen(bool set, bool user) override;
     void closeWindow() override;
 
     void installAppMenu(KWaylandServer::AppMenuInterface *appMenu);
     void installServerDecoration(KWaylandServer::ServerSideDecorationInterface *decoration);
     void installPalette(KWaylandServer::ServerSideDecorationPaletteInterface *palette);
-    void installPlasmaShellSurface(KWaylandServer::PlasmaShellSurfaceInterface *shellSurface);
+    void installPlasmaShellSurface(KWaylandServer::PlasmaShellSurfaceInterface *shellSurface) override;
     void installXdgDecoration(KWaylandServer::XdgToplevelDecorationV1Interface *decoration);
 
 protected:
@@ -221,8 +223,9 @@ private:
     void setupWindowManagementIntegration();
     void setupPlasmaShellIntegration();
     void sendPing(PingReason reason);
+    MaximizeMode initialMaximizeMode() const;
+    bool initialFullScreenMode() const;
 
-    QPointer<KWaylandServer::PlasmaShellSurfaceInterface> m_plasmaShellSurface;
     QPointer<KWaylandServer::AppMenuInterface> m_appMenuInterface;
     QPointer<KWaylandServer::ServerSideDecorationPaletteInterface> m_paletteInterface;
     QPointer<KWaylandServer::ServerSideDecorationInterface> m_serverDecoration;
@@ -230,12 +233,14 @@ private:
     KWaylandServer::XdgToplevelInterface *m_shellSurface;
     KWaylandServer::XdgToplevelInterface::States m_requestedStates;
     KWaylandServer::XdgToplevelInterface::States m_acknowledgedStates;
+    KWaylandServer::XdgToplevelInterface::States m_initialStates;
     QMap<quint32, PingReason> m_pings;
     QRect m_fullScreenGeometryRestore;
     NET::WindowType m_windowType = NET::Normal;
     MaximizeMode m_maximizeMode = MaximizeRestore;
     MaximizeMode m_requestedMaximizeMode = MaximizeRestore;
     bool m_isFullScreen = false;
+    bool m_isInitialized = false;
     bool m_userNoBorder = false;
     bool m_isTransient = false;
 };
@@ -268,8 +273,9 @@ public:
     void updateDecoration(bool check_workspace_pos, bool force = false) override;
     void showOnScreenEdge() override;
     bool wantsInput() const override;
-    void takeFocus() override;
+    bool takeFocus() override;
     bool supportsWindowRules() const override;
+    void installPlasmaShellSurface(KWaylandServer::PlasmaShellSurfaceInterface *shellSurface) override;
 
 protected:
     bool acceptsFocus() const override;

@@ -71,12 +71,12 @@ private:
 void PlasmaSurfaceTest::initTestCase()
 {
     qRegisterMetaType<KWin::AbstractClient *>();
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
 }
 
 void PlasmaSurfaceTest::init()
@@ -291,7 +291,7 @@ void PlasmaSurfaceTest::testPanelTypeHasStrut_data()
     QTest::newRow("always visible - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::AlwaysVisible << true << QRect(0, 50, 1280, 974) << KWin::DockLayer;
     QTest::newRow("autohide - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::AutoHide << false << QRect(0, 0, 1280, 1024) << KWin::AboveLayer;
     QTest::newRow("windows can cover - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::WindowsCanCover << false << QRect(0, 0, 1280, 1024) << KWin::NormalLayer;
-    QTest::newRow("windows go below - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::WindowsGoBelow << false << QRect(0, 0, 1280, 1024) << KWin::DockLayer;
+    QTest::newRow("windows go below - xdgWmBase") << Test::XdgShellSurfaceType::XdgShellStable << PlasmaShellSurface::PanelBehavior::WindowsGoBelow << false << QRect(0, 0, 1280, 1024) << KWin::AboveLayer;
 }
 
 void PlasmaSurfaceTest::testPanelTypeHasStrut()

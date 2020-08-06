@@ -44,7 +44,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWaylandServer/display.h>
 #include <KWaylandServer/dpms_interface.h>
 #include <KWaylandServer/idle_interface.h>
-#include <KWaylandServer/idleinhibit_interface.h>
+#include <KWaylandServer/idleinhibit_v1_interface.h>
 #include <KWaylandServer/linuxdmabuf_v1_interface.h>
 #include <KWaylandServer/output_interface.h>
 #include <KWaylandServer/plasmashell_interface.h>
@@ -62,7 +62,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <KWaylandServer/outputconfiguration_interface.h>
 #include <KWaylandServer/xdgdecoration_v1_interface.h>
 #include <KWaylandServer/xdgshell_interface.h>
-#include <KWaylandServer/xdgforeign_interface.h>
+#include <KWaylandServer/xdgforeign_v2_interface.h>
 #include <KWaylandServer/xdgoutput_interface.h>
 #include <KWaylandServer/keystate_interface.h>
 #include <KWaylandServer/filtered_display.h>
@@ -99,6 +99,11 @@ WaylandServer::WaylandServer(QObject *parent)
 WaylandServer::~WaylandServer()
 {
     destroyInputMethodConnection();
+}
+
+KWaylandServer::ClientConnection *WaylandServer::xWaylandConnection() const
+{
+    return m_xwaylandConnection;
 }
 
 void WaylandServer::destroyInternalConnection()
@@ -156,9 +161,7 @@ void WaylandServer::registerXdgToplevelClient(XdgToplevelClient *client)
     // TODO: Find a better way and more generic to install extensions.
 
     SurfaceInterface *surface = client->surface();
-    if (surface->client() == m_xwayland.client) {
-        return;
-    }
+
     if (surface->client() == m_screenLockerClientConnection) {
         ScreenLocker::KSldApp::self()->lockScreenShown();
     }
@@ -187,7 +190,7 @@ void WaylandServer::registerXdgToplevelClient(XdgToplevelClient *client)
         client->installPalette(palette);
     }
 
-    connect(m_XdgForeign, &XdgForeignInterface::transientChanged, client, [this](SurfaceInterface *child) {
+    connect(m_XdgForeign, &XdgForeignV2Interface::transientChanged, client, [this](SurfaceInterface *child) {
         emit foreignTransientChanged(child);
     });
 }
@@ -202,6 +205,19 @@ void WaylandServer::registerXdgGenericClient(AbstractClient *client)
     XdgPopupClient *popupClient = qobject_cast<XdgPopupClient *>(client);
     if (popupClient) {
         registerShellClient(popupClient);
+
+        SurfaceInterface *surface = client->surface();
+        auto it = std::find_if(m_plasmaShellSurfaces.begin(), m_plasmaShellSurfaces.end(),
+            [surface] (PlasmaShellSurfaceInterface *plasmaSurface) {
+                return plasmaSurface->surface() == surface;
+            }
+        );
+
+        if (it != m_plasmaShellSurfaces.end()) {
+            popupClient->installPlasmaShellSurface(*it);
+            m_plasmaShellSurfaces.erase(it);
+        }
+
         return;
     }
     qCDebug(KWIN_CORE) << "Received invalid xdg client:" << client->surface();
@@ -242,7 +258,7 @@ public:
         return KWin::fetchRequestedInterfaces(client->executablePath());
     }
 
-    const QSet<QByteArray> interfacesBlackList = {"org_kde_kwin_remote_access_manager", "org_kde_plasma_window_management", "org_kde_kwin_fake_input", "org_kde_kwin_keystate"};
+    const QSet<QByteArray> interfacesBlackList = {"org_kde_kwin_remote_access_manager", "org_kde_plasma_window_management", "org_kde_kwin_fake_input", "org_kde_kwin_keystate", "zkde_screencast_unstable_v1"};
     QSet<QString> m_reported;
 
     bool allowInterface(KWaylandServer::ClientConnection *client, const QByteArray &interfaceName) override {
@@ -293,6 +309,11 @@ public:
     }
 };
 
+bool WaylandServer::start()
+{
+    return m_display->start();
+}
+
 bool WaylandServer::init(const QByteArray &socketName, InitializationFlags flags)
 {
     m_initFlags = flags;
@@ -302,12 +323,7 @@ bool WaylandServer::init(const QByteArray &socketName, InitializationFlags flags
     } else {
         m_display->setAutomaticSocketNaming(true);
     }
-    m_display->start();
-    if (!m_display->isRunning()) {
-        return false;
-    }
     m_compositor = m_display->createCompositor(m_display);
-    m_compositor->create();
     connect(m_compositor, &CompositorInterface::surfaceCreated, this,
         [this] (SurfaceInterface *surface) {
             // check whether we have a Toplevel with the Surface's id
@@ -356,18 +372,18 @@ bool WaylandServer::init(const QByteArray &socketName, InitializationFlags flags
     m_display->createDataControlDeviceManagerV1(m_display);
     m_display->createPrimarySelectionDeviceManagerV1(m_display);
     m_idle = m_display->createIdle(m_display);
-    m_idle->create();
     auto idleInhibition = new IdleInhibition(m_idle);
     connect(this, &WaylandServer::shellClientAdded, idleInhibition, &IdleInhibition::registerClient);
-    m_display->createIdleInhibitManager(IdleInhibitManagerInterfaceVersion::UnstableV1, m_display)->create();
+    m_display->createIdleInhibitManagerV1(m_display);
     m_plasmaShell = m_display->createPlasmaShell(m_display);
     m_plasmaShell->create();
     connect(m_plasmaShell, &PlasmaShellInterface::surfaceCreated,
         [this] (PlasmaShellSurfaceInterface *surface) {
-            if (XdgToplevelClient *client = findXdgToplevelClient(surface->surface())) {
+            if (XdgSurfaceClient *client = findXdgSurfaceClient(surface->surface())) {
                 client->installPlasmaShellSurface(surface);
                 return;
             }
+
             m_plasmaShellSurfaces.append(surface);
             connect(surface, &QObject::destroyed, this, [this, surface] {
                 m_plasmaShellSurfaces.removeOne(surface);
@@ -383,7 +399,6 @@ bool WaylandServer::init(const QByteArray &socketName, InitializationFlags flags
         }
     );
     m_paletteManager = m_display->createServerSideDecorationPaletteManager(m_display);
-    m_paletteManager->create();
     connect(m_paletteManager, &ServerSideDecorationPaletteManagerInterface::paletteCreated,
         [this] (ServerSideDecorationPaletteInterface *palette) {
             if (XdgToplevelClient *client = findXdgToplevelClient(palette->surface())) {
@@ -420,13 +435,11 @@ bool WaylandServer::init(const QByteArray &socketName, InitializationFlags flags
     );
 
     m_virtualDesktopManagement = m_display->createPlasmaVirtualDesktopManagement(m_display);
-    m_virtualDesktopManagement->create();
     m_windowManagement->setPlasmaVirtualDesktopManagementInterface(m_virtualDesktopManagement);
 
-    auto shadowManager = m_display->createShadowManager(m_display);
-    shadowManager->create();
+    m_display->createShadowManager(m_display);
 
-    m_display->createDpmsManager(m_display)->create();
+    m_display->createDpmsManager(m_display);
 
     m_decorationManager = m_display->createServerSideDecorationManager(m_display);
     connect(m_decorationManager, &ServerSideDecorationManagerInterface::decorationCreated, this,
@@ -442,7 +455,6 @@ bool WaylandServer::init(const QByteArray &socketName, InitializationFlags flags
             );
         }
     );
-    m_decorationManager->create();
 
     m_outputManagement = m_display->createOutputManagement(m_display);
     connect(m_outputManagement, &OutputManagementInterface::configurationChangeRequested,
@@ -456,8 +468,7 @@ bool WaylandServer::init(const QByteArray &socketName, InitializationFlags flags
 
     m_display->createSubCompositor(m_display)->create();
 
-    m_XdgForeign = m_display->createXdgForeignInterface(m_display);
-    m_XdgForeign->create();
+    m_XdgForeign = m_display->createXdgForeignV2Interface(m_display);
 
     m_keyState = m_display->createKeyStateInterface(m_display);
     m_keyState->create();
@@ -611,23 +622,17 @@ int WaylandServer::createXWaylandConnection()
     if (!socket.connection) {
         return -1;
     }
-    m_xwayland.client = socket.connection;
-    m_xwayland.destroyConnection = connect(m_xwayland.client, &KWaylandServer::ClientConnection::disconnected, this,
-        [] {
-            qFatal("Xwayland Connection died");
-        }
-    );
+    m_xwaylandConnection = socket.connection;
     return socket.fd;
 }
 
 void WaylandServer::destroyXWaylandConnection()
 {
-    if (!m_xwayland.client) {
+    if (!m_xwaylandConnection) {
         return;
     }
-    disconnect(m_xwayland.destroyConnection);
-    m_xwayland.client->destroy();
-    m_xwayland.client = nullptr;
+    m_xwaylandConnection->destroy();
+    m_xwaylandConnection = nullptr;
 }
 
 int WaylandServer::createInputMethodConnection()
@@ -763,6 +768,11 @@ AbstractClient *WaylandServer::findClient(SurfaceInterface *surface) const
 XdgToplevelClient *WaylandServer::findXdgToplevelClient(SurfaceInterface *surface) const
 {
     return qobject_cast<XdgToplevelClient *>(findClient(surface));
+}
+
+XdgSurfaceClient *WaylandServer::findXdgSurfaceClient(SurfaceInterface *surface) const
+{
+    return qobject_cast<XdgSurfaceClient *>(findClient(surface));
 }
 
 quint32 WaylandServer::createWindowId(SurfaceInterface *surface)

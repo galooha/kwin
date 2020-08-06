@@ -93,8 +93,8 @@ void QuickTilingTest::initTestCase()
 {
     qRegisterMetaType<KWin::AbstractClient*>();
     qRegisterMetaType<KWin::MaximizeMode>("MaximizeMode");
-    QSignalSpy workspaceCreatedSpy(kwinApp(), &Application::workspaceCreated);
-    QVERIFY(workspaceCreatedSpy.isValid());
+    QSignalSpy applicationStartedSpy(kwinApp(), &Application::started);
+    QVERIFY(applicationStartedSpy.isValid());
     kwinApp()->platform()->setInitialWindowSize(QSize(1280, 1024));
     QVERIFY(waylandServer()->init(s_socketName.toLocal8Bit()));
     QMetaObject::invokeMethod(kwinApp()->platform(), "setVirtualOutputs", Qt::DirectConnection, Q_ARG(int, 2));
@@ -110,7 +110,7 @@ void QuickTilingTest::initTestCase()
     qputenv("XKB_DEFAULT_RULES", "evdev");
 
     kwinApp()->start();
-    QVERIFY(workspaceCreatedSpy.wait());
+    QVERIFY(applicationStartedSpy.wait());
     QCOMPARE(screens()->count(), 2);
     QCOMPARE(screens()->geometry(0), QRect(0, 0, 1280, 1024));
     QCOMPARE(screens()->geometry(1), QRect(1280, 0, 1280, 1024));
@@ -775,8 +775,7 @@ void QuickTilingTest::testShortcut()
 
     QSignalSpy quickTileChangedSpy(c, &AbstractClient::quickTileModeChanged);
     QVERIFY(quickTileChangedSpy.isValid());
-    QVERIFY(quickTileChangedSpy.wait());
-    QCOMPARE(quickTileChangedSpy.count(), numberOfQuickTileActions);
+    QTRY_COMPARE(quickTileChangedSpy.count(), numberOfQuickTileActions);
     // at this point the geometry did not yet change
     QCOMPARE(c->frameGeometry(), QRect(0, 0, 100, 50));
     // but quick tile mode already changed

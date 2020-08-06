@@ -163,7 +163,6 @@ void PointerInputRedirection::init()
     const auto clients = workspace()->allClientList();
     std::for_each(clients.begin(), clients.end(), setupMoveResizeConnection);
     connect(workspace(), &Workspace::clientAdded, this, setupMoveResizeConnection);
-    connect(waylandServer(), &WaylandServer::shellClientAdded, this, setupMoveResizeConnection);
 
     // warp the cursor to center of screen
     warp(screens()->geometry().center());
@@ -565,7 +564,7 @@ void PointerInputRedirection::focusUpdate(Toplevel *focusOld, Toplevel *focusNow
     seat->setPointerPos(m_pos.toPoint());
     seat->setFocusedPointerSurface(focusNow->surface(), focusNow->inputTransformation());
 
-    m_focusGeometryConnection = connect(focusNow, &Toplevel::frameGeometryChanged, this,
+    m_focusGeometryConnection = connect(focusNow, &Toplevel::inputTransformationChanged, this,
         [this] {
             // TODO: why no assert possible?
             if (!focus()) {
@@ -964,7 +963,6 @@ CursorImage::CursorImage(PointerInputRedirection *parent)
     const auto clients = workspace()->allClientList();
     std::for_each(clients.begin(), clients.end(), setupMoveResizeConnection);
     connect(workspace(), &Workspace::clientAdded, this, setupMoveResizeConnection);
-    connect(waylandServer(), &WaylandServer::shellClientAdded, this, setupMoveResizeConnection);
     loadThemeCursor(Qt::ArrowCursor, &m_fallbackCursor);
 
     m_surfaceRenderedTimer.start();
@@ -1110,7 +1108,7 @@ void CursorImage::updateServerCursor()
     }
     m_serverCursor.cursor.hotspot = c->hotspot();
     m_serverCursor.cursor.image = buffer->data().copy();
-    m_serverCursor.cursor.image.setDevicePixelRatio(cursorSurface->scale());
+    m_serverCursor.cursor.image.setDevicePixelRatio(cursorSurface->bufferScale());
     if (needsEmit) {
         emit changed();
     }
@@ -1207,7 +1205,7 @@ void CursorImage::updateDragCursor()
 
     if (additionalIcon.isNull()) {
         m_drag.cursor.image = buffer->data().copy();
-        m_drag.cursor.image.setDevicePixelRatio(cursorSurface->scale());
+        m_drag.cursor.image.setDevicePixelRatio(cursorSurface->bufferScale());
     } else {
         QRect cursorRect = buffer->data().rect();
         QRect iconRect = additionalIcon.rect();
@@ -1224,7 +1222,7 @@ void CursorImage::updateDragCursor()
         }
 
         m_drag.cursor.image = QImage(cursorRect.united(iconRect).size(), QImage::Format_ARGB32_Premultiplied);
-        m_drag.cursor.image.setDevicePixelRatio(cursorSurface->scale());
+        m_drag.cursor.image.setDevicePixelRatio(cursorSurface->bufferScale());
         m_drag.cursor.image.fill(Qt::transparent);
         QPainter p(&m_drag.cursor.image);
         p.drawImage(iconRect, additionalIcon);
@@ -1322,7 +1320,6 @@ bool WaylandCursorImage::loadThemeCursor_helper(const QByteArray &name, Image *c
     cursorImage->image.setDevicePixelRatio(m_cursorTheme.devicePixelRatio());
 
     cursorImage->hotspot = sprites.first().hotspot();
-    cursorImage->hotspot /= m_cursorTheme.devicePixelRatio();
 
     return true;
 }

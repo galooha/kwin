@@ -5,7 +5,7 @@ set(PROJECT_VERSION "5.19.80")
 set(PROJECT_VERSION_MAJOR 5)
 
 set(QT_MIN_VERSION "5.14.0")
-set(KF5_MIN_VERSION "5.70.0")
+set(KF5_MIN_VERSION "5.73.0")
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules ${CMAKE_MODULE_PATH})
 
@@ -48,6 +48,7 @@ include(KDEClangFormat)
 
 include(ECMInstallIcons)
 include(ECMOptionalAddSubdirectory)
+include(ECMConfiguredInstall)
 
 add_definitions(-DQT_DISABLE_DEPRECATED_BEFORE=0 -DQT_USE_QSTRINGBUILDER -DQT_NO_URL_CAST_FROM_STRING)
 
@@ -391,6 +392,10 @@ add_feature_info("SCHED_RESET_ON_FORK"
                  HAVE_SCHED_RESET_ON_FORK
                  "Required for running kwin_wayland with real-time scheduling")
 
+
+pkg_check_modules(PipeWire IMPORTED_TARGET libpipewire-0.3)
+add_feature_info(PipeWire PipeWire_FOUND "Required for Wayland screencasting")
+
 configure_file(config-kwin.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config-kwin.h)
 
 ########### global ###############
@@ -449,6 +454,7 @@ set(kwin_SRCS
     decorations/decorations_logging.cpp
     decorations/settings.cpp
     deleted.cpp
+    dmabuftexture.cpp
     effectloader.cpp
     effects.cpp
     egl_context_attribute_builder.cpp
@@ -709,6 +715,7 @@ set_target_properties(kwin PROPERTIES
 )
 
 target_link_libraries(kwin ${kwinLibs} kwinglutils ${epoxy_LIBRARY})
+
 generate_export_header(kwin EXPORT_FILE_NAME kwin_export.h)
 
 if(CMAKE_SYSTEM MATCHES "FreeBSD")
@@ -744,16 +751,40 @@ ecm_qt_declare_logging_category(kwin_XWAYLAND_SRCS
     CATEGORY_NAME
         kwin_xwl
     DEFAULT_SEVERITY
-        Critical
+        Warning
 )
 
 set(kwin_WAYLAND_SRCS
    main_wayland.cpp
    tabletmodemanager.cpp
 )
+ecm_qt_declare_logging_category(kwin_WAYLAND_SRCS
+    HEADER
+        kwinscreencast_logging.h
+    IDENTIFIER
+        KWIN_SCREENCAST
+    CATEGORY_NAME
+        kwin_screencast
+    DEFAULT_SEVERITY
+        Warning
+)
 
 add_executable(kwin_wayland ${kwin_WAYLAND_SRCS} ${kwin_XWAYLAND_SRCS})
-target_link_libraries(kwin_wayland kwin KF5::Crash)
+
+
+if (PipeWire_FOUND)
+    target_sources(kwin_wayland
+        PRIVATE
+        screencast/screencastmanager.cpp
+        screencast/pipewirecore.cpp
+        screencast/pipewirestream.cpp)
+    target_link_libraries(kwin_wayland PkgConfig::PipeWire)
+endif()
+
+target_link_libraries(kwin_wayland
+                      kwin
+                      KF5::Crash
+)
 if (HAVE_LIBCAP)
     target_link_libraries(kwin_wayland ${Libcap_LIBRARIES})
 endif()
@@ -819,3 +850,6 @@ configure_package_config_file(KWinDBusInterfaceConfig.cmake.in
     INSTALL_DESTINATION ${CMAKECONFIG_INSTALL_DIR})
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/KWinDBusInterfaceConfig.cmake
     DESTINATION ${CMAKECONFIG_INSTALL_DIR})
+
+ecm_install_configured_files(INPUT plasma-kwin_x11.service.in plasma-kwin_wayland.service.in @ONLY
+            DESTINATION ${SYSTEMD_USER_UNIT_INSTALL_DIR})

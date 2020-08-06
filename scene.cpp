@@ -198,6 +198,8 @@ void Scene::finalPaintScreen(int mask, const QRegion &region, ScreenPaintData& d
         paintGenericScreen(mask, data);
     else
         paintSimpleScreen(mask, region);
+
+    Q_EMIT frameRendered();
 }
 
 // The generic painting code that can handle even transformations.
@@ -406,9 +408,9 @@ void Scene::addToplevel(Toplevel *c)
         // TODO(vlad): Is there a more efficient way to manage window pixmap trees?
         connect(monitor, &SubSurfaceMonitor::subSurfaceAdded, w, &Window::discardPixmap);
         connect(monitor, &SubSurfaceMonitor::subSurfaceRemoved, w, &Window::discardPixmap);
-        connect(monitor, &SubSurfaceMonitor::subSurfaceResized, w, &Window::discardPixmap);
         connect(monitor, &SubSurfaceMonitor::subSurfaceMapped, w, &Window::discardPixmap);
         connect(monitor, &SubSurfaceMonitor::subSurfaceUnmapped, w, &Window::discardPixmap);
+        connect(monitor, &SubSurfaceMonitor::subSurfaceBufferSizeChanged, w, &Window::discardPixmap);
 
         connect(monitor, &SubSurfaceMonitor::subSurfaceAdded, w, &Window::discardQuads);
         connect(monitor, &SubSurfaceMonitor::subSurfaceRemoved, w, &Window::discardQuads);
@@ -416,9 +418,10 @@ void Scene::addToplevel(Toplevel *c)
         connect(monitor, &SubSurfaceMonitor::subSurfaceResized, w, &Window::discardQuads);
         connect(monitor, &SubSurfaceMonitor::subSurfaceMapped, w, &Window::discardQuads);
         connect(monitor, &SubSurfaceMonitor::subSurfaceUnmapped, w, &Window::discardQuads);
+        connect(monitor, &SubSurfaceMonitor::subSurfaceSurfaceToBufferMatrixChanged, w, &Window::discardQuads);
 
-        connect(c->surface(), &KWaylandServer::SurfaceInterface::scaleChanged, w, &Window::discardQuads);
-        connect(c->surface(), &KWaylandServer::SurfaceInterface::viewportChanged, w, &Window::discardQuads);
+        connect(c->surface(), &KWaylandServer::SurfaceInterface::bufferSizeChanged, w, &Window::discardPixmap);
+        connect(c->surface(), &KWaylandServer::SurfaceInterface::surfaceToBufferMatrixChanged, w, &Window::discardQuads);
     }
 
     connect(c, &Toplevel::screenScaleChanged, w, &Window::discardQuads);
@@ -1259,7 +1262,7 @@ QPoint WindowPixmap::framePosition() const
 qreal WindowPixmap::scale() const
 {
     if (surface())
-        return surface()->scale();
+        return surface()->bufferScale();
     return toplevel()->bufferScale();
 }
 
