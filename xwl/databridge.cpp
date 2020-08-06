@@ -21,7 +21,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "clipboard.h"
 #include "dnd.h"
 #include "selection.h"
-#include "xcbutils.h"
 #include "xwayland.h"
 
 #include "abstract_client.h"
@@ -103,27 +102,7 @@ bool DataBridge::filterEvent(xcb_generic_event_t *event)
     if (m_dnd && m_dnd->filterEvent(event)) {
         return true;
     }
-    if (event->response_type == Xcb::Extensions::self()->fixesSelectionNotifyEvent()) {
-        return handleXfixesNotify((xcb_xfixes_selection_notify_event_t *)event);
-    }
     return false;
-}
-
-bool DataBridge::handleXfixesNotify(xcb_xfixes_selection_notify_event_t *event)
-{
-    Selection *selection = nullptr;
-
-    if (event->selection == atoms->clipboard) {
-        selection = m_clipboard;
-    } else if (event->selection == atoms->xdnd_selection) {
-        selection = m_dnd;
-    }
-
-    if (!selection) {
-        return false;
-    }
-
-    return selection->handleXfixesNotify(event);
 }
 
 DragEventReply DataBridge::dragMoveFilter(Toplevel *target, const QPoint &pos)

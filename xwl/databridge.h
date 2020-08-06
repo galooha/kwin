@@ -23,10 +23,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <QObject>
 #include <QPoint>
 
-#include <xcb/xcb.h>
-
-struct xcb_xfixes_selection_notify_event_t;
-
 namespace KWayland
 {
 namespace Client
@@ -85,8 +81,6 @@ public:
 
 private:
     void init();
-
-    bool handleXfixesNotify(xcb_xfixes_selection_notify_event_t *event);
 
     Clipboard *m_clipboard = nullptr;
     Dnd *m_dnd = nullptr;
